@@ -73,7 +73,7 @@ async fn main(spawner: Spawner) {
 		// Timer::after_micros(50).await;
 
 		// task()
-		Timer::after_millis(500).await;
+		Timer::after_millis(20).await;
 		// task()
 
 		data[2] = data[2].wrapping_add(1);
@@ -81,7 +81,7 @@ async fn main(spawner: Spawner) {
 }
 
 fn byte_to_pulses(b: u8) -> [u32; 8] {
-    [0, 1, 2, 3, 4, 5, 6, 7].map(|i| match (b >> i) & 1 {
+    [7, 6, 5, 4, 3, 2, 1, 0].map(|i| match (b >> i) & 1 {
         0 => PulseCode::new(Level::High, 32, Level::Low, 68),
         _ => PulseCode::new(Level::High, 64, Level::Low, 36),
     })
