@@ -5,6 +5,7 @@
     reason = "mem::forget is generally not safe to do with esp_hal types, especially those \
     holding buffers for the duration of a data transfer."
 )]
+#![allow(unused)]
 
 use embassy_executor::Spawner;
 use embassy_time::{Timer};
@@ -17,6 +18,7 @@ use esp_hal::rmt::{PulseCode, TxChannelCreator, TxChannelConfig, TxChannelAsync}
 use esp_hal::gpio::Level;
 use esp_hal::usb_serial_jtag::UsbSerialJtag;
 use core::fmt::Write;
+use embedded_io_async::Read;
 
 #[panic_handler]
 fn panic(p: &core::panic::PanicInfo) -> ! {
@@ -34,7 +36,7 @@ fn panic(p: &core::panic::PanicInfo) -> ! {
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
-const LED_COUNT: usize = 1;
+const LED_COUNT: usize = 2;
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
@@ -45,6 +47,8 @@ async fn main(spawner: Spawner) {
 
     esp_hal_embassy::init(SystemTimer::new(peripherals.SYSTIMER).alarm0);
 
+    let mut usb_async = UsbSerialJtag::new(peripherals.USB_DEVICE).into_async();
+
 	let _neopixel_i2c_power = Output::new(peripherals.GPIO20,
         		esp_hal::gpio::Level::High,
 				OutputConfig::default());
@@ -53,30 +57,48 @@ async fn main(spawner: Spawner) {
 		.unwrap()
 		.into_async()
 		.channel0
-		.configure_tx(peripherals.GPIO9, 
-			TxChannelConfig::default().with_clk_divider(1))
+		.configure_tx(peripherals.GPIO8, 
+			TxChannelConfig::default()
+				.with_memsize((LED_COUNT/2 + 1) as u8)
+				.with_clk_divider(1))
 		.unwrap();
 
 	// data is a sequence of 24bit GRB colors, as [u8; _]
-	let mut data: [u8; 3] = [255, 0, 0];    
+	let mut data: [u8; LED_COUNT*3] = [
+		20, 0, 0, // led 0
+		0,  0, 20  // led 1
+		// ... 4096
+	];
+
+	let mut usb_buf: [u8; LED_COUNT*3] = [0; _];
 
 	spawner.spawn(task()).unwrap();
 
 	loop {
+		// if swapping to reading from this usb to not read from usb
+		// then you have to disconnect IO9 and then reset it after plugging it in
+		// to power again
+
+		usb_async.read_exact(&mut usb_buf).await.unwrap();
+
 		let mut pulses: [u32; LED_COUNT*24 + 1] = [0; _];
 
-		data.map(byte_to_pulses).iter().enumerate().for_each(|(i, e)|
+		// data.map(byte_to_pulses).iter().enumerate().for_each(|(i, e)|
+		// 	pulses[i * 8..(i + 1) * 8].copy_from_slice(e));
+		usb_buf.map(byte_to_pulses).iter().enumerate().for_each(|(i, e)|
 			pulses[i * 8..(i + 1) * 8].copy_from_slice(e));
 
 		pulses[pulses.len()-1] = PulseCode::new(Level::Low, 0, Level::Low, 0);
 		channel.transmit(&pulses).await.unwrap();
-		// Timer::after_micros(50).await;
 
-		// task()
+		// task() in the background
+		//
+
 		Timer::after_millis(20).await;
-		// task()
 
-		data[2] = data[2].wrapping_add(1);
+		// task() in the background
+
+		// data[2] = data[2].wrapping_add(1);
 	}
 }
 
